@@ -1,0 +1,207 @@
+---
+title: "Pm566-midterm"
+author: Tao Huang
+date: October 07, 2020
+output: html_document
+
+---
+#MIDTERM requirment:
+  Narrative Through this project you will launch a portfolio of data science projects that will become seminal for your job hunt. This midterm is a stepping stone for the final project. The first step in any data analysis is to have a dataset for which you have formulated an interesting question. If you do not have a dataset to work with, you may choose one from our list of suggestions. With your dataset, formulate a clear and concise question to answer and conduct data wrangling, exploratory data analysis, and data visualization to explore/answer this question.
+
+Deliverable: A knitted R markdown written report (.html) with embedded tables and figures that is submitted to a project-specific github repository that you create. The report should have the following sections: Introduction (provide background on your dataset and formulated question), Methods (include how and where the data were acquired, how you cleaned and wrangled the data, what tools you used for data exploration), Preliminary Results (provide summary statistics in tabular form and publication-quality figures, take a look at the kable function from knitr to write nice tables in Rmarkdown), and a brief Conclusion about what you found in terms of the formulated question.
+
+In your report, please do not include unformatted output or dataset summaries (e.g. output from head(), str(), etc.). You should summarize these aspects of your data within the text.
+
+*Other report requirement*
+  *In your report, please do not include unformatted output or dataset1 summaries (e.g. output from head(), str(), etc.).*
+  
+
+```{R,eval=TRUE}
+
+library(rvest) 
+library(httr) 
+library(stringr)
+library(jsonlite)
+
+library(data.table)
+library(tidyverse)
+library(ggplot2)
+
+library(dplyr)
+library(lubridate)
+library(patchwork)
+
+```
+
+
+
+##MY QUESTION
+1. Will the Los Angeles covid-19 outbreak have a significant impact on the increase in the crime rate in Los Angeles, and then visualize their relationship.
+2. Which areas of Los Angeles have a higher crime frequency in 2020? Visual presentation.
+3. Which crimes will occur most frequently in Los Angeles in 2020? Visual presentation.
+
+#API and Datasets:
+*LA_raw_crime：The API comes from Los Angeles city data. The data collection includes all data from January 2020 to October 7, 2020.*
+
+*LA_raw_covid：Including all the data from March 10, 2020 to October 7, 2020 in Los Angeles County. In order to facilitate the comparison of the impact of the emergence of covid-19 on the psychological and economic aspects of residents, which may lead to an increase in the crime rate, I Set the numbers of covid-19 data before March to 0. The data comes from County of Los Angeles Public Health. *
+
+
+##Q1: 1. Will the Los Angeles covid-19 outbreak have a significant impact on the increase in the crime rate in Los Angeles, and then visualize their relationship.
+
+
+```{R}
+#Extact raw DATA from APIs.
+
+#la_raw_Crime 
+la_raw_crime<-GET(
+url="https://data.lacity.org/resource/2nrs-mtv8.json",
+  query = list(
+  "$limit"=147947)
+)
+
+la_raw_crime<-content(la_raw_crime,"text") %>% fromJSON()
+
+
+#la_raw_covid
+la_raw_covid<-fread("/Users/huangtao/Desktop/PM566+R/midterm-TH/LA_County_Covid19_persons_tested_date_table.csv")
+
+
+```
+
+#find the association between cumulative positive persons(covid-19) and cumulative criminal persons(in LA).
+```{R,eval=TRUE, cache=TRUE}
+# data pre-processing
+##covid
+#calculate the numbers of cumulative positive persons in the ending day of each day in 2020.
+m<-la_raw_covid[order(la_raw_covid[,1],decreasing = T),.(cumulative_positive_persons_all)][0:210]
+n<-rep(0,69)
+la_covid<-data.frame(rbind(n,m,use.names=FALSE))
+
+
+
+
+#####get "la_crime"
+la_raw_crime<-data.table(la_raw_crime)#change data.frame to model of data.table  /or directly use fread("csv..")
+#cumulative_criminal_persons
+
+#get  "la_crime_freq"
+la_crime_freq<-la_raw_crime[,ymd:=ymd(as.Date(la_raw_crime$date_rptd))]
+la_crime_freq<-data.table(data.frame(table(la_crime_freq$ymd),stringsAsFactors=F))
+la_crime_freq[,cumulative_criminal_persons:=cumsum(la_crime_freq$Freq)]
+la_crime_freq[,ymd:=ymd(la_crime_freq$Var1)]
+
+
+
+#"com"   combining la_crime_freq & la_covid   
+com<-la_crime_freq[,cumulative_positive_persons_all:=la_covid]
+com
+
+
+# Most basic bubble plot
+ggplot(com, aes(x=ymd, y=cumulative_criminal_persons, size = cumulative_positive_persons_all
+)) + geom_point(alpha=0.1)
+
+
+#linear regression~~~
+a<-lm(cumulative_criminal_persons~cumulative_positive_persons_all,data=com)
+summary(a)
+
+```
+*As can be seen from the time series bubble chart, as the number of covid-19-positive patients increases (the bubble becomes larger), the number of criminals in LA has also shown a significant upward trend.*
+
+*After the regression analysis, it can be seen that the cumulative positive patients of covid-19 have a statistically significant relationship with the cumulative number of LA crimes.（p=2e-16 <0.05）*
+
+
+#further visualization(cumulative_criminal_persons  vs  cumulative_positive_persons_all)
+```{R, eval=TRUE,cache=TRUE}
+
+library(hrbrthemes)
+###Time-Series Analysis
+#cumulative_criminal_persons  vs  cumulative_positive_persons_all
+p1<-ggplot(com, aes(x=ymd, y=cumulative_criminal_persons)) +
+  geom_line(color="#69b3a2", size=2) +
+  theme_ipsum()
+
+p2 <- ggplot(com[50:.N], aes(x=ymd, y=cumulative_positive_persons_all)) +
+  geom_line(color="grey",size=2) +
+  theme_ipsum()
+
+p1 + p2
+
+```
+*From this comparative time series chart, the trend of increasing number of cumulative crimes in Los Angeles is similar to the trend of increasing number of covid-19 positive patients in Los Angeles in 2020.*
+
+
+
+
+
+#Q2. Which areas of Los Angeles have a higher crime frequency in 2020? Visual presentation.
+```{R,eval=TRUE,cache=TRUE}
+##the frequency of crime：
+la_raw_crime
+
+la_crime<-la_raw_crime[,ymd:=ymd(as.Date(la_raw_crime$date_rptd))]
+
+#round procss of lat and lon
+la_crime<-la_raw_crime[,nlat:=round(as.numeric(lat),2)]
+la_crime[,nlon:=round(as.numeric(la_crime$lon),2)]
+
+##the frequency of crime in 2020
+ll_freq<-la_crime[,ll:=paste(nlon,nlat,sep = ",")] 
+ll_freq<-data.table(data.frame(table(ll_freq$ll),stringsAsFactors=F))
+
+
+##extract lon & lat from text.
+nlon2<-data.frame(as.numeric(str_extract(ll_freq$Var1,
+                   "-[[:digit:]]+.[[:digit:]]+"
+                   )))
+
+nlat2<-data.frame(as.numeric(str_extract(ll_freq$Var1,
+                   "(?<=,)[[:digit:]]+.[[:digit:]]+|(?<=,)[[:digit:]]+"
+                   )))
+
+ll_freq[,nlon:=nlon2]
+ll_freq[,nlat:=nlat2]
+
+## Los Angeles Crime distributed MAP in 2020
+library(leaflet)
+pal <- colorNumeric(palette = c("green","red","blue"),domain = ll_freq$Freq)
+
+leaflet(ll_freq) %>%
+  addProviderTiles(providers$CartoDB.Positron)%>%
+  addCircles(lng=~nlon,lat=~nlat,fillColor = ~pal,fillOpacity = 0.6,color = ~pal(Freq))%>%
+  addLegend("bottomright", pal = pal, values = ~Freq,
+    title = "Crime Cases",
+    opacity = 1
+  )
+
+
+```
+
+*By categorizing 140,000 criminal records according to latitude and longitude (in order to reduce the amount of calculation, the latitude and longitude are approximately 2 decimal places). Build a heatspot map to visualize the distribution*
+
+*It is easy to find that the crime frequency from map is concentrated in the downtown area and the southern area of Los Angeles (unfortunately, the area around USC is a high crime area). The Beverly area and the Hollywood area, where the community economy is more developed, have lower crime frequencies.*
+
+
+#Q3. Which crimes will occur most frequently in Los Angeles in 2020? Visual presentation.
+```{R, eval=TRUE,cache=TRUE}
+
+##text mining
+text_mining<-data.frame(str_extract(la_crime$crm_cd_desc,
+                             "[[:alpha:]]+"
+                             ))
+data<-data.table(table(text_mining) %>% sort(decreasing = TRUE))
+
+
+data %>%
+  top_n(20,N) %>%     #top_n(x,n,wt)  ...x has been piped before (x = token)
+  ggplot(aes(fct_reorder(text_mining,N) ,N)) + geom_col() + coord_flip() 
+
+```
+*Through the text mining of the crime description, it can be found that the "theft" and "burglary" types of crimes occur most frequently. It may be because the increase in the unemployment rate brought about by covid-19 breakout has exacerbated the housing economic crisis, so that the frequency of economic crimes has become higher.*
+
+*"Vehicle" only follows the third, which fits our impression. (LA is a city with a very large traffic volume, so the frequency of traffic accidents will also be high)*
+
+
+
+
