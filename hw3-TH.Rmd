@@ -1,0 +1,267 @@
+---
+title: "HW3 - Text Mining "
+author: Tao Huang
+date: October 14, 2020
+output: html_docuent
+---
+
+##APIs
+Using the NCBI API, look for papers that show up under the term "sars-cov-2 trial vaccine." Look for the data in the pubmed database, and then retrieve the details of the paper as shown in lab 7. How many papers were you able to find?
+
+Using the list of pubmed ids you retrieved, download each papers’ details using the query parameter rettype = abstract. If you get more than 250 ids, just keep the first 250.
+
+As we did in lab 7. Create a dataset containing the following:
+
+Pubmed ID number,
+Title of the paper,
+Name of the journal where it was published,
+Publication date, and
+Abstract of the paper (if any).
+```{R}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{R}
+library(tidyverse)
+library(data.table)
+library(dplyr)
+library(httr)
+library(xml2)
+library(stringr)     # extract the text....
+
+web <- xml2::read_html("https://pubmed.ncbi.nlm.nih.gov/?term=sars-cov-2+trial+vaccine")
+
+#counts the results
+count <- xml2::xml_find_first(web, 
+                 "/html/body/main/div[9]/div[2]/div[2]/div[1]/span")  # full_xpath
+count <- as.character(count)
+str_extract(count, "[0-9,]+")
+
+```
+*There are 564 results/papers related to term of "sars-cov-2 trial vaccine" in the PubMed database*
+Pubmed ID number,
+Title of the paper,
+Name of the journal where it was published,
+Publication date, and
+Abstract of the paper (if any).
+```{R}
+
+#extract Pubmed ID number of containing key term"sars-cov-2 trial vaccine"
+query_id <- GET(
+  url   = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",  #ESearch (text searches)
+  query = list(
+               db="pubmed",
+               term="sars-cov-2 trial vaccine",
+               retmax=250
+               )
+)
+
+
+id<-content(query_id)
+
+
+#extract "<Id>[0-9]+</Id>"
+id <- str_extract_all(id, "<Id>[0-9]+</Id>")[[1]]  #attention!
+##remove <Id> </Id>
+
+id<-str_remove_all(id, "<Id>|</Id>")
+
+typeof(id)
+```
+```{R}
+publica <- GET(
+  url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+  query = list(
+    db = "pubmed",
+    id = paste(id, collapse=","),
+      retmax = 250,
+    rettype = "abstract"
+    )
+)
+
+
+publica <- content(publica)
+publica_txt <- as.character(publica)
+
+```
+
+
+```{R}
+
+###Form a database
+pub_char <- xml_children(publica)
+#Splits 
+pub_char <- sapply(pub_char, as.character)
+
+
+##extract the content
+#Abstract of the paper (if any)
+abstract <- str_extract(pub_char, "<Abstract>(\\n|.)+</Abstract>")
+abstract <- str_remove_all(abstract, "</?[[:alnum:]]+>")
+abstract <- str_replace_all(abstract, "\\s+", " ")
+table(is.na(abstract))
+
+
+
+#Title of the paper
+title <- str_extract(pub_char, "<ArticleTitle>(\\n|.)+</ArticleTitle>")
+title <- str_remove_all(title, "</?[[:alnum:]]+>")
+title <- str_replace_all(title, "\\s+", " ")
+table(is.na(title))
+
+
+
+#Publication date
+date <- str_extract(pub_char, "<PubDate>(\\n|.)+</PubDate>")
+date <- str_remove_all(date, "</?[[:alpha:]]+>")
+date <- str_remove_all(date, "\n")
+date <- str_remove_all(date, "</?[[:punct:]]+>")
+
+
+#Name of the journal where it was published,
+journal <- str_extract(pub_char, "<MedlineTA>(\\n|.)+</MedlineTA>")
+```
+
+```{R}
+DataBase <- data.frame(
+  PubMedID = id,
+  Title = title,
+  Abstract = abstract,
+  PublicationDate=date,
+  JournalAbbrevation=journal
+)
+
+
+##knitr---like print format
+knitr::kable(DataBase)
+
+```
+
+
+
+
+
+
+
+
+##Text Mining
+A new dataset has been added to the data science data repository https://github.com/USCbiostats/data-science-data/tree/master/03_pubmed. The dataset contains 3241 abstracts from articles across 5 search terms. Your job is to analyse these abstracts to find interesting insights.
+
+
+1、Tokenize the abstracts and count the number of each token. Do you see anything interesting? 
+```{r}
+library(tidyverse)
+library(data.table)
+library(dplyr)
+
+
+mytext <- fread("https://raw.githubusercontent.com/USCbiostats/data-science-data/master/03_pubmed/pubmed.csv")
+head(mytext)
+str(mytext)
+
+mytext[,"abstract"]
+
+
+mytext %>% 
+  unnest_tokens(output = token, input="abstract") %>%
+  count(token,sort=TRUE) 
+
+```
+*The words "the","of", "and"...etc has the highest frequency appeared in abstract. However,these words does not have actual meaning (they are stop words).* 
+
+
+1-2、Does removing stop words change what tokens appear as the most frequent? What are the 5 most common tokens for each search term after removing stopwords?
+
+```{R}
+mytext %>%
+  unnest_tokens(word, abstract) %>%
+  anti_join(stop_words,by=c("word")) %>%   #the col of stop_words is call "wortd" which is equal to the output"word" above (unnest_tokens(word, abstract) %>%). Therefore, we don't need to use by=c("token" = "word") to let them connect each other.
+  filter(!(word %in% as.character(seq(0,100)))) %>%    #remove number
+  count(word,sort=TRUE)
+  
+  
+mytext %>%
+  unnest_tokens(word, abstract) %>%
+  anti_join(stop_words,by=c("word")) %>%
+  filter(!(word %in% as.character(seq(0,100)))) %>%    #remove number
+  group_by(term) %>%      #grouped by "term" (for counting the top 5 words in each "term") 
+  count(word,sort=TRUE) %>%
+  top_n(5,n)
+
+
+
+
+```
+*It's changed.*
+
+
+
+2、Tokenize the abstracts into bigrams. Find the 10 most common bigram and visualize them with ggplot2.
+
+```{R}
+library(ggplot2)
+
+mytext %>%
+  unnest_ngrams(output= token,input=abstract,n=2) %>%
+  count(token,sort=TRUE) %>%
+  top_n(10,n) %>%
+  ggplot(aes(fct_reorder(token,n), n)) + geom_col() + coord_flip()
+
+```
+
+
+
+
+3、Calculate the TF-IDF value for each word-search term combination. (here you want the search term to be the “document”) What are the 5 tokens from each search term with the highest TF-IDF value? How are the results different from the answers you got in question 1?
+
+>DF(Document Frequency)
+>IDF(Inverse Document Frequency) = log(N/(DF+1))
+
+>TF-IDF = TF(Term Frequency) * IDF(Inverse Document Frequency)
+>The word of value of TF-IDF is higher, this word is more likely to be a *keyword* ... because, This word has a large numbers in whole file but has a low IDF(Inverse Document Frequency) 
+
+```{R}
+##TF-IDF------keywords
+mytext %>%
+  unnest_tokens(word, abstract) %>%
+  anti_join(stop_words,by=c("word")) %>%
+  filter(!(word %in% as.character(seq(0,100)))) %>%    #remove number
+  group_by(term) %>%      #grouped by "term" (for counting the top 5 words in each "term") 
+  count(word,sort=TRUE) %>%
+  top_n(5,n) %>%
+  bind_tf_idf(word, term, n) %>%
+  arrange(desc(tf_idf))
+
+```
+*The top 3 tokens are the same to the tokens in Q1, but we can find some new words appear in the top 10 keywords Ranking, like meningitis,fibrosis and cystic. They have the low total number but have a very high tf_idf, which means they are the keywords in some terms. *
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
