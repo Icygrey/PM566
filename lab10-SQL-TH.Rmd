@@ -1,0 +1,269 @@
+---
+title: "Lab 10 - SQL"
+author: Tao Huang
+output: tufte::tufte_html
+link-citations: yes
+---
+
+# Setup
+
+DELETE THIS CHUNK
+
+```{r setup}
+install.packages("RSQLite")
+install.packages("DBI")
+
+
+knitr::opts_chunk$set(eval = FALSE)
+library(RSQLite)
+library(DBI)
+# Initialize a temporary in memory database
+con <- dbConnect(SQLite(), ":memory:")
+```
+
+
+
+```{r}
+# install.packages(c("RSQLite", "DBI"))
+library(RSQLite)
+library(DBI)
+# Initialize a temporary in memory database
+con <- dbConnect(SQLite(), ":memory:")
+#con is temporary database which used to input data from other tables
+
+# Download tables
+actor <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/actor.csv")
+rental <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/rental.csv")
+customer <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/customer.csv")
+payment <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/payment_p2007_01.csv")
+
+# Copy data.frames to database
+dbWriteTable(con, "actor", actor)
+dbWriteTable(con, "rental", rental)
+dbWriteTable(con, "customer", customer)
+dbWriteTable(con, "payment", payment)
+
+```
+
+```{r}
+dbListTables(con)
+typeof(con)
+str(actor)
+```
+
+TIP: Use can use the following QUERY to see the structure of a table
+
+```{sql, connection=con}
+-----#{sql} used to change to sql language.  #,connection="database" is neecessary
+
+PRAGMA table_info(actor)          /*see the info of table "actor"*/
+
+```
+
+SQL references:
+
+https://www.w3schools.com/sql/
+
+# Exercise 1
+
+Retrive the actor ID, first name and last name for all actors using the `actor` table. Sort by last name and then by first name.
+
+```{sql, connection=con}
+
+SELECT actor_id, first_name, last_name    
+FROM actor
+ORDER by last_name, first_name 
+
+```
+
+# Exercise 2
+
+Retrive the actor ID, first name, and last name for actors whose last name equals 'WILLIAMS' or 'DAVIS'.
+
+```{sql, connection=con}
+SELECT actor_id, first_name, last_name
+FROM actor
+WHERE last_name IN ('WILLIAMS', 'DAVIS');    /*last_name=='WILLIAMS', 'DAVIS'*/
+```
+
+# Exercise 3
+
+Write a query against the `rental` table that returns the IDs of the customers who rented a film on July 5, 2005 (use the rental.rental_date column, and you can use the date() function to ignore the time component). Include a single row for each distinct customer ID. 
+```{sql, connection=con}
+-----#{sql} used to change to sql language.  #,connection="database" is neecessary
+
+PRAGMA table_info(rental)          /*see the info of table "actor"*/
+```
+
+```{sql, connection=con}
+select date(rental_date)     /*data(..)  --extract date*/
+from rental
+```
+
+```{sql, connection=con, output.var="July5th_ids"}
+
+SELECT DISTINCT customer_id, rental_date  /*select distinct ---only return different value..ign*/
+FROM rental
+WHERE date(rental_date) = '2005-07-05'
+
+```
+
+```{r}
+July5th_ids
+```
+
+
+
+# Exercise 4
+
+## Exercise 4.1
+
+Construct a query that retrives all rows from the `payment` table where the amount is either 1.99, 7.99, 9.99.
+
+```{sql, connection=con}
+/*see the info of table "actor"*/
+pragma table_info(payment)
+```
+
+```{sql, connection=con}
+SELECT *
+FROM payment
+WHERE amount IN (1.99, 7.99, 9.99)
+```
+
+## Exercise 4.2
+
+Construct a query that retrives all rows from the `payment` table where the amount is greater then 5
+
+```{sql, connection=con}
+SELECT *
+FROM payment
+WHERE (amount >5)
+```
+
+## Exercise 4.2
+
+Construct a query that retrives all rows from the `payment` table where the amount is greater then 5 and less then 8
+
+```{sql, connection=con}
+SELECT *
+FROM payment
+WHERE (amount>5) AND (amount<8)
+```
+# Exercise 5
+
+Retrive all the payment IDs and their amount from the customers whose last name is 'DAVIS'.
+
+```{sql, connection=con}
+SELECT c.customer_id, p.amount, c.first_name, c.last_name
+FROM customer AS c
+  INNER JOIN payment AS p       /*join the two tables*/
+ON c.customer_id=p.customer_id    /*customer_id is connection var.*/
+where c.last_name = 'DAVIS'
+
+
+
+```
+
+# Exercise 6
+
+## Exercise 6.1
+
+Use `COUNT(*)` to count the number of rows in `rental`
+
+```{sql, connection=con}
+
+select count(*) AS n_obs
+from rental
+
+```
+
+## Exercise 6.2
+
+Use `COUNT(*)` and `GROUP BY` to count the number of rentals for each `customer_id`
+
+```{sql, connection=con}
+select count(*) AS n_obs2, customer_id
+from rental
+group by customer_id
+
+```
+## Exercise 6.3
+
+Repeat the previous query and sort by the count in descending order
+
+```{sql, connection=con}
+
+select count(*) AS n_obs2, customer_id
+from rental
+group by customer_id
+order by count(*) desc      /*descending order*/
+
+```
+
+## Exercise 6.4
+
+Repeat the previous query but use `HAVING` to only keep the groups with 40 or more.
+
+```{sql, connection=con}
+select count(*) AS n_obs2, customer_id
+from rental
+group by customer_id
+having count(*)>=40     /*only keep the groups with 40 or more.*/
+order by count(*) desc      /*descending order*/
+
+```
+
+# Exercise 7
+
+The following query calculates a number of summary statistics for the payment table using `MAX`, `MIN`, `AVG` and `SUM` of `amount`
+
+```{sql, connection=con}
+select max(amount) AS max, 
+min(amount) AS min, 
+avg(amount) AS avg,
+sum(amount) AS sum
+
+from payment
+
+```
+
+## Exercise 7.1
+
+Modify the above query to do those calculations for each `customer_id`
+
+```{sql, connection=con}
+select max(amount) AS max, 
+min(amount) AS min, 
+avg(amount) AS avg,
+sum(amount) AS sum,customer_id
+
+
+from payment
+group by customer_id
+```
+## Exercise 7.2
+
+Modify the above query to only keep the `customer_id`s that have more then 5 payments
+
+```{sql, connection=con}
+select max(amount) AS max, 
+min(amount) AS min, 
+avg(amount) AS avg,
+sum(amount) AS sum,customer_id,
+count(*) AS count
+
+from payment
+group by customer_id
+having count >5
+
+
+```
+# Cleanup
+
+Run the following chunk to disconnect from the connection.
+
+```{r}
+# clean up
+dbDisconnect(con)
+```
